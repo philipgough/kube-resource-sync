@@ -20,7 +20,12 @@ import (
 	"k8s.io/client-go/util/workqueue"
 )
 
+const (
+	resourceTypeConfigMap = "configmap"
+	resourceTypeSecret    = "secret"
+)
 
+// Controller handles syncing Kubernetes resources to disk
 type Controller struct {
 	// client is the kubernetes client
 	client clientset.Interface
@@ -57,6 +62,7 @@ type Controller struct {
 	key  string
 }
 
+// Options contains configuration for the Controller
 type Options struct {
 	// ResourceType is the type of Kubernetes resource (configmap or secret)
 	ResourceType string
@@ -68,6 +74,7 @@ type Options struct {
 	FilePath string
 }
 
+// NewController creates a new Controller instance
 func NewController(
 	configMapInformer coreinformers.ConfigMapInformer,
 	secretInformer coreinformers.SecretInformer,
@@ -96,33 +103,39 @@ func NewController(
 		// significantly higher default backoff (1s vs 5ms). A more significant
 		// rate limit back off here helps ensure that the Controller does not
 		// overwhelm the API Server.
-		queue: workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]()),
+		queue:            workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]()),
 		workerLoopPeriod: time.Second,
 		namespace:        namespace,
 		metrics:          ctrlMetrics,
 	}
 
 	switch opts.ResourceType {
-	case "configmap":
+	case resourceTypeConfigMap:
 		if configMapInformer == nil {
 			return nil, fmt.Errorf("configMapInformer cannot be nil for configmap resource type")
 		}
-		configMapInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		_, err := configMapInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 			AddFunc:    c.onConfigMapAdd,
 			UpdateFunc: c.onConfigMapUpdate,
 			DeleteFunc: c.onConfigMapDelete,
 		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to add ConfigMap event handler: %w", err)
+		}
 		c.configMapLister = configMapInformer.Lister()
 		c.configMapSynced = configMapInformer.Informer().HasSynced
-	case "secret":
+	case resourceTypeSecret:
 		if secretInformer == nil {
 			return nil, fmt.Errorf("secretInformer cannot be nil for secret resource type")
 		}
-		secretInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		_, err := secretInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 			AddFunc:    c.onSecretAdd,
 			UpdateFunc: c.onSecretUpdate,
 			DeleteFunc: c.onSecretDelete,
 		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to add Secret event handler: %w", err)
+		}
 		c.secretLister = secretInformer.Lister()
 		c.secretSynced = secretInformer.Informer().HasSynced
 	default:
@@ -146,9 +159,9 @@ func (c *Controller) Run(ctx context.Context, workers int) error {
 
 	var cacheSyncFunc cache.InformerSynced
 	switch c.resourceType {
-	case "configmap":
+	case resourceTypeConfigMap:
 		cacheSyncFunc = c.configMapSynced
-	case "secret":
+	case resourceTypeSecret:
 		cacheSyncFunc = c.secretSynced
 	default:
 		return fmt.Errorf("unsupported resource type: %s", c.resourceType)
@@ -205,7 +218,7 @@ func (c *Controller) processNextWorkItem(ctx context.Context) bool {
 		// For example, we do not call Forget if a transient error occurs, instead the item is
 		// put back on the queue and attempted again after a back-off period.
 		defer c.queue.Done(key)
-		
+
 		// Run the syncHandler, passing it the namespace/name string of the ConfigMap resource to be synced.
 		if err := c.syncHandler(ctx, key); err != nil {
 			// Put the item back on the queue to handle any transient errors.
@@ -240,7 +253,7 @@ func (c *Controller) syncHandler(_ context.Context, key string) error {
 	var found bool
 
 	switch c.resourceType {
-	case "configmap":
+	case resourceTypeConfigMap:
 		cm, err := c.configMapLister.ConfigMaps(namespace).Get(name)
 		if err != nil {
 			if errors.IsNotFound(err) {
@@ -257,7 +270,7 @@ func (c *Controller) syncHandler(_ context.Context, key string) error {
 		data = []byte(dataStr)
 		found = true
 
-	case "secret":
+	case resourceTypeSecret:
 		secret, err := c.secretLister.Secrets(namespace).Get(name)
 		if err != nil {
 			if errors.IsNotFound(err) {
@@ -306,8 +319,16 @@ func (c *Controller) onConfigMapAdd(obj interface{}) {
 }
 
 func (c *Controller) onConfigMapUpdate(oldObj, newObj interface{}) {
-	newCM := newObj.(*corev1.ConfigMap)
-	oldCM := oldObj.(*corev1.ConfigMap)
+	newCM, ok := newObj.(*corev1.ConfigMap)
+	if !ok {
+		slog.Error("unexpected object type in update", "type", fmt.Sprintf("%T", newObj))
+		return
+	}
+	oldCM, ok := oldObj.(*corev1.ConfigMap)
+	if !ok {
+		slog.Error("unexpected object type in update", "type", fmt.Sprintf("%T", oldObj))
+		return
+	}
 
 	if !c.shouldEnqueueConfigMap(newCM) {
 		return
@@ -345,8 +366,16 @@ func (c *Controller) onSecretAdd(obj interface{}) {
 }
 
 func (c *Controller) onSecretUpdate(oldObj, newObj interface{}) {
-	newSecret := newObj.(*corev1.Secret)
-	oldSecret := oldObj.(*corev1.Secret)
+	newSecret, ok := newObj.(*corev1.Secret)
+	if !ok {
+		slog.Error("unexpected object type in update", "type", fmt.Sprintf("%T", newObj))
+		return
+	}
+	oldSecret, ok := oldObj.(*corev1.Secret)
+	if !ok {
+		slog.Error("unexpected object type in update", "type", fmt.Sprintf("%T", oldObj))
+		return
+	}
 
 	if !c.shouldEnqueueSecret(newSecret) {
 		return
@@ -393,7 +422,7 @@ func (o Options) valid() error {
 	if o.ResourceType == "" {
 		return fmt.Errorf("resource type cannot be empty")
 	}
-	if o.ResourceType != "configmap" && o.ResourceType != "secret" {
+	if o.ResourceType != resourceTypeConfigMap && o.ResourceType != resourceTypeSecret {
 		return fmt.Errorf("resource type must be 'configmap' or 'secret'")
 	}
 	return nil

@@ -33,14 +33,14 @@ const (
 
 func TestController_SyncConfigMap(t *testing.T) {
 	testData := "test-config-data"
-	
+
 	// Create temporary directory for test
 	tmpDir := t.TempDir()
 	testFilePath := filepath.Join(tmpDir, "test-config")
 
 	// Create fake Kubernetes client
 	fakeClient := fake.NewClientset()
-	
+
 	// Create ConfigMap
 	configMap := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -51,10 +51,10 @@ func TestController_SyncConfigMap(t *testing.T) {
 			testConfigMapKey: testData,
 		},
 	}
-	
+
 	_, err := fakeClient.CoreV1().ConfigMaps(testNamespace).Create(
-		context.Background(), 
-		configMap, 
+		context.Background(),
+		configMap,
 		metav1.CreateOptions{},
 	)
 	if err != nil {
@@ -79,7 +79,7 @@ func TestController_SyncConfigMap(t *testing.T) {
 		testNamespace,
 		prometheus.NewRegistry(),
 		Options{
-			ResourceType: "configmap",
+			ResourceType: resourceTypeConfigMap,
 			ResourceKey:  testConfigMapKey,
 			ResourceName: testConfigMapName,
 			FilePath:     testFilePath,
@@ -104,7 +104,7 @@ func TestController_SyncConfigMap(t *testing.T) {
 			t.Logf("Controller error: %v", err)
 		}
 	}()
-	
+
 	// Manually trigger the add event since fake client may not automatically do this
 	controller.onConfigMapAdd(configMap)
 
@@ -116,7 +116,7 @@ func TestController_SyncConfigMap(t *testing.T) {
 		}
 		return string(content) == testData, nil
 	})
-	
+
 	if err != nil {
 		t.Fatalf("File was not written with expected content: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestController_SyncConfigMap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to read file: %v", err)
 	}
-	
+
 	if string(content) != testData {
 		t.Errorf("Expected file content %q, got %q", testData, string(content))
 	}
@@ -147,7 +147,7 @@ func TestController_WriteFile(t *testing.T) {
 		testNamespace,
 		prometheus.NewRegistry(),
 		Options{
-			ResourceType: "configmap",
+			ResourceType: resourceTypeConfigMap,
 			ResourceKey:  testConfigMapKey,
 			ResourceName: testConfigMapName,
 			FilePath:     testFilePath,
@@ -209,7 +209,7 @@ func TestController_InvalidOptions(t *testing.T) {
 		{
 			name: "empty file path",
 			opts: Options{
-				ResourceType: "configmap",
+				ResourceType: resourceTypeConfigMap,
 				ResourceKey:  testConfigMapKey,
 				ResourceName: testConfigMapName,
 				FilePath:     "",
@@ -219,7 +219,7 @@ func TestController_InvalidOptions(t *testing.T) {
 		{
 			name: "empty resource name",
 			opts: Options{
-				ResourceType: "configmap",
+				ResourceType: resourceTypeConfigMap,
 				ResourceKey:  testConfigMapKey,
 				ResourceName: "",
 				FilePath:     "/tmp/test",
@@ -229,7 +229,7 @@ func TestController_InvalidOptions(t *testing.T) {
 		{
 			name: "empty resource key",
 			opts: Options{
-				ResourceType: "configmap",
+				ResourceType: resourceTypeConfigMap,
 				ResourceKey:  "",
 				ResourceName: testConfigMapName,
 				FilePath:     "/tmp/test",
@@ -259,7 +259,7 @@ func TestController_InvalidOptions(t *testing.T) {
 		{
 			name: "valid configmap options",
 			opts: Options{
-				ResourceType: "configmap",
+				ResourceType: resourceTypeConfigMap,
 				ResourceKey:  testConfigMapKey,
 				ResourceName: testConfigMapName,
 				FilePath:     "/tmp/test",
@@ -269,7 +269,7 @@ func TestController_InvalidOptions(t *testing.T) {
 		{
 			name: "valid secret options",
 			opts: Options{
-				ResourceType: "secret",
+				ResourceType: resourceTypeSecret,
 				ResourceKey:  testConfigMapKey,
 				ResourceName: testConfigMapName,
 				FilePath:     "/tmp/test",
@@ -288,7 +288,7 @@ func TestController_InvalidOptions(t *testing.T) {
 				prometheus.NewRegistry(),
 				tt.opts,
 			)
-			
+
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewController() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -301,7 +301,7 @@ func TestController_MissingConfigMapKey(t *testing.T) {
 	testFilePath := filepath.Join(tmpDir, "test-config")
 
 	fakeClient := fake.NewClientset()
-	
+
 	// Create ConfigMap without the expected key
 	configMap := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -312,10 +312,10 @@ func TestController_MissingConfigMapKey(t *testing.T) {
 			"wrong-key": "some-data",
 		},
 	}
-	
+
 	_, err := fakeClient.CoreV1().ConfigMaps(testNamespace).Create(
-		context.Background(), 
-		configMap, 
+		context.Background(),
+		configMap,
 		metav1.CreateOptions{},
 	)
 	if err != nil {
@@ -338,7 +338,7 @@ func TestController_MissingConfigMapKey(t *testing.T) {
 		testNamespace,
 		prometheus.NewRegistry(),
 		Options{
-			ResourceType: "configmap",
+			ResourceType: resourceTypeConfigMap,
 			ResourceKey:  testConfigMapKey,
 			ResourceName: testConfigMapName,
 			FilePath:     testFilePath,
@@ -463,7 +463,7 @@ func runControllerIntegration(t *testing.T, ctx context.Context, cfg *rest.Confi
 		namespace,
 		prometheus.NewRegistry(),
 		Options{
-			ResourceType: "configmap",
+			ResourceType: resourceTypeConfigMap,
 			ResourceKey:  testConfigMapKey,
 			ResourceName: testConfigMapName,
 			FilePath:     filePath,
@@ -503,7 +503,7 @@ func pollUntilExpectConfigurationOrTimeout(t *testing.T, ctx context.Context, fi
 	err := wait.PollUntilContextTimeout(ctx, 5*time.Second, 30*time.Second, false, func(ctx context.Context) (bool, error) {
 		b, err := os.ReadFile(file)
 		if err != nil {
-			pollError = fmt.Errorf("failed to read expect file: %s", err)
+			pollError = fmt.Errorf("failed to read expect file: %w", err)
 			return false, nil
 		}
 
@@ -516,7 +516,7 @@ func pollUntilExpectConfigurationOrTimeout(t *testing.T, ctx context.Context, fi
 	})
 
 	if err != nil {
-		return fmt.Errorf("failed to assert contents of config file: %v: %v", err, pollError)
+		return fmt.Errorf("failed to assert contents of config file: %w: %v", err, pollError)
 	}
 
 	return nil
@@ -524,14 +524,14 @@ func pollUntilExpectConfigurationOrTimeout(t *testing.T, ctx context.Context, fi
 
 func TestController_SyncSecret(t *testing.T) {
 	testData := "secret-test-data"
-	
+
 	// Create temporary directory for test
 	tmpDir := t.TempDir()
 	testFilePath := filepath.Join(tmpDir, "test-secret")
 
 	// Create fake Kubernetes client
 	fakeClient := fake.NewClientset()
-	
+
 	// Create Secret
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -542,10 +542,10 @@ func TestController_SyncSecret(t *testing.T) {
 			testSecretKey: []byte(testData),
 		},
 	}
-	
+
 	_, err := fakeClient.CoreV1().Secrets(testNamespace).Create(
-		context.Background(), 
-		secret, 
+		context.Background(),
+		secret,
 		metav1.CreateOptions{},
 	)
 	if err != nil {
@@ -570,7 +570,7 @@ func TestController_SyncSecret(t *testing.T) {
 		testNamespace,
 		prometheus.NewRegistry(),
 		Options{
-			ResourceType: "secret",
+			ResourceType: resourceTypeSecret,
 			ResourceKey:  testSecretKey,
 			ResourceName: testSecretName,
 			FilePath:     testFilePath,
@@ -595,7 +595,7 @@ func TestController_SyncSecret(t *testing.T) {
 			t.Logf("Controller error: %v", err)
 		}
 	}()
-	
+
 	// Manually trigger the add event since fake client may not automatically do this
 	controller.onSecretAdd(secret)
 
@@ -607,7 +607,7 @@ func TestController_SyncSecret(t *testing.T) {
 		}
 		return string(content) == testData, nil
 	})
-	
+
 	if err != nil {
 		t.Fatalf("File was not written with expected content: %v", err)
 	}
@@ -617,7 +617,7 @@ func TestController_SyncSecret(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to read file: %v", err)
 	}
-	
+
 	if string(content) != testData {
 		t.Errorf("Expected file content %q, got %q", testData, string(content))
 	}
@@ -638,7 +638,7 @@ func TestController_SecretWriteFile(t *testing.T) {
 		testNamespace,
 		prometheus.NewRegistry(),
 		Options{
-			ResourceType: "secret",
+			ResourceType: resourceTypeSecret,
 			ResourceKey:  testSecretKey,
 			ResourceName: testSecretName,
 			FilePath:     testFilePath,
@@ -693,7 +693,7 @@ func TestController_MissingSecretKey(t *testing.T) {
 	testFilePath := filepath.Join(tmpDir, "test-secret")
 
 	fakeClient := fake.NewClientset()
-	
+
 	// Create Secret without the expected key
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -704,10 +704,10 @@ func TestController_MissingSecretKey(t *testing.T) {
 			"wrong-key": []byte("some-data"),
 		},
 	}
-	
+
 	_, err := fakeClient.CoreV1().Secrets(testNamespace).Create(
-		context.Background(), 
-		secret, 
+		context.Background(),
+		secret,
 		metav1.CreateOptions{},
 	)
 	if err != nil {
@@ -730,7 +730,7 @@ func TestController_MissingSecretKey(t *testing.T) {
 		testNamespace,
 		prometheus.NewRegistry(),
 		Options{
-			ResourceType: "secret",
+			ResourceType: resourceTypeSecret,
 			ResourceKey:  testSecretKey,
 			ResourceName: testSecretName,
 			FilePath:     testFilePath,
@@ -762,4 +762,3 @@ func TestController_MissingSecretKey(t *testing.T) {
 		t.Error("File should not be created when Secret key is missing")
 	}
 }
-
