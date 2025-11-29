@@ -23,7 +23,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 
-	sync_controller "github.com/philipgough/kube-resource-sync/internal/pkg/controller"
+	synccontroller "github.com/philipgough/kube-resource-sync/internal/pkg/sync"
 )
 
 // ResourceType represents the type of Kubernetes resource that can be synced
@@ -46,11 +46,11 @@ var (
 	masterURL  string
 	kubeconfig string
 
-	namespace     string
-	resourceType  ResourceType
-	resourceName  string
-	resourceKey   string
-	pathToWrite   string
+	namespace    string
+	resourceType ResourceType
+	resourceName string
+	resourceKey  string
+	pathToWrite  string
 
 	listen string
 )
@@ -62,17 +62,17 @@ func main() {
 		slog.Error("path flag is required")
 		os.Exit(1)
 	}
-	
+
 	if resourceType == "" {
 		slog.Error("resource-type flag is required")
 		os.Exit(1)
 	}
-	
-	if resourceType != ResourceTypeConfigMap {
-		slog.Error("only configmap resource type is currently supported", "type", resourceType)
+
+	if resourceType != ResourceTypeConfigMap && resourceType != ResourceTypeSecret {
+		slog.Error("unsupported resource type, must be 'configmap' or 'secret'", "type", resourceType)
 		os.Exit(1)
 	}
-	
+
 	if resourceName == "" {
 		slog.Error("resource-name flag is required")
 		os.Exit(1)
@@ -108,16 +108,21 @@ func main() {
 	}
 
 	// Create controller based on resource type
-	var controller *sync_controller.Controller
-	if resourceType == ResourceTypeConfigMap {
+	var controller *synccontroller.Controller
+	switch resourceType {
+	case ResourceTypeConfigMap:
 		configMapInformer := informerFactory.Core().V1().ConfigMaps()
-		controller, err = createController(configMapInformer, kubeClient, namespace, r, resourceName, resourceKey, pathToWrite)
-		if err != nil {
-			slog.Error("failed to create controller", "error", err)
-			os.Exit(1)
-		}
-	} else {
+		controller, err = createController(configMapInformer, nil, kubeClient, namespace, r, string(resourceType), resourceName, resourceKey, pathToWrite)
+	case ResourceTypeSecret:
+		secretInformer := informerFactory.Core().V1().Secrets()
+		controller, err = createController(nil, secretInformer, kubeClient, namespace, r, string(resourceType), resourceName, resourceKey, pathToWrite)
+	default:
 		slog.Error("unsupported resource type", "type", resourceType)
+		os.Exit(1)
+	}
+
+	if err != nil {
+		slog.Error("failed to create controller", "error", err)
 		os.Exit(1)
 	}
 
@@ -173,16 +178,18 @@ func main() {
 	slog.Info("controller stopped gracefully")
 }
 
-// createController creates the appropriate controller for ConfigMap resources
-func createController(configMapInformer coreinformers.ConfigMapInformer, kubeClient kubernetes.Interface, namespace string, registry prometheus.Registerer, resourceName, resourceKey, pathToWrite string) (*sync_controller.Controller, error) {
-	opts := sync_controller.Options{
-		ConfigMapKey:  resourceKey,
-		ConfigMapName: resourceName,
-		FilePath:      pathToWrite,
+// createController creates the appropriate controller for resources
+func createController(configMapInformer coreinformers.ConfigMapInformer, secretInformer coreinformers.SecretInformer, kubeClient kubernetes.Interface, namespace string, registry prometheus.Registerer, resourceType, resourceName, resourceKey, pathToWrite string) (*synccontroller.Controller, error) {
+	opts := synccontroller.Options{
+		ResourceType: resourceType,
+		ResourceKey:  resourceKey,
+		ResourceName: resourceName,
+		FilePath:     pathToWrite,
 	}
 
-	return sync_controller.NewController(
+	return synccontroller.NewController(
 		configMapInformer,
+		secretInformer,
 		kubeClient,
 		namespace,
 		registry,
@@ -203,8 +210,14 @@ func createInformerFactory(kubeClient kubernetes.Interface, namespace string, re
 			}),
 		), nil
 	case ResourceTypeSecret:
-		// TODO: Implement secret informer when secret support is added
-		return nil, fmt.Errorf("secret resource type is not yet supported")
+		return kubeinformers.NewSharedInformerFactoryWithOptions(
+			kubeClient,
+			resyncPeriod,
+			kubeinformers.WithNamespace(namespace),
+			kubeinformers.WithTweakListOptions(func(options *metav1.ListOptions) {
+				options.FieldSelector = fmt.Sprintf("metadata.name=%s", resourceName)
+			}),
+		), nil
 	default:
 		return nil, fmt.Errorf("unsupported resource type: %s", resourceType)
 	}
@@ -231,7 +244,7 @@ func init() {
 	flag.StringVar(&listen, "listen", defaultListen, "HTTP server listen address for metrics and health checks")
 
 	flag.StringVar(&namespace, "namespace", metav1.NamespaceDefault, "Kubernetes namespace to watch for resources")
-	flag.Func("resource-type", "Type of Kubernetes resource to sync (configmap or secret). Currently only 'configmap' is supported", func(s string) error {
+	flag.Func("resource-type", "Type of Kubernetes resource to sync (configmap or secret)", func(s string) error {
 		resourceType = ResourceType(s)
 		return nil
 	})
