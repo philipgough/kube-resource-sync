@@ -1,0 +1,56 @@
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - typecheck
+    - unused
+    - gofmt
+    - goimports
+    - goconst
+    - gosec
+    - misspell
+    - revive
+
+linters-settings:
+  goconst:
+    min-len: 3
+    min-occurrences: 3
+  goimports:
+    local-prefixes: github.com/philipgough/kube-resource-sync
+  gosec:
+    excludes:
+      - G112 # ReadHeaderTimeout not configured - acceptable for internal metrics server
+      - G306 # File permissions 0644 - acceptable for config files
+      - G401 # MD5 used only for metrics hash - not cryptographic use
+      - G501 # MD5 import for metrics hash - not cryptographic use
+  revive:
+    rules:
+      - name: exported
+        severity: warning
+        disabled: false
+
+issues:
+  exclude-rules:
+    # Exclude some linters from running on tests files
+    - path: _test\.go
+      linters:
+        - errcheck
+        - gosec
+        - revive
+    # Exclude global variables in main.go (command line flags)
+    - path: cmd/main\.go
+      linters:
+        - gochecknoglobals
+  max-issues-per-linter: 50
+  max-same-issues: 10
+
+output:
+  formats:
+    - format: colored-line-number
