@@ -4,6 +4,7 @@
 *.dll
 *.so
 *.dylib
+kube-resource-sync
 
 # Test binary, built with `go test -c`
 *.test

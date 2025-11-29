@@ -19,8 +19,11 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kubeinformers "k8s.io/client-go/informers"
+	coreinformers "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
+
+	sync_controller "github.com/philipgough/kube-resource-sync/internal/pkg/controller"
 )
 
 // ResourceType represents the type of Kubernetes resource that can be synced
@@ -104,12 +107,19 @@ func main() {
 		os.Exit(1)
 	}
 
-	// TODO: Implement controller
-	// controller, err := sync.NewController(...)
-	// if err != nil {
-	//     slog.Error("failed to create new controller", "error", err)
-	//     os.Exit(1)
-	// }
+	// Create controller based on resource type
+	var controller *sync_controller.Controller
+	if resourceType == ResourceTypeConfigMap {
+		configMapInformer := informerFactory.Core().V1().ConfigMaps()
+		controller, err = createController(configMapInformer, kubeClient, namespace, r, resourceName, resourceKey, pathToWrite)
+		if err != nil {
+			slog.Error("failed to create controller", "error", err)
+			os.Exit(1)
+		}
+	} else {
+		slog.Error("unsupported resource type", "type", resourceType)
+		os.Exit(1)
+	}
 
 	slog.Info("starting kube-resource-sync controller", "namespace", namespace)
 
@@ -139,9 +149,11 @@ func main() {
 	go func() {
 		defer wg.Done()
 		informerFactory.Start(ctx.Done())
-		// TODO: return controller.Run(ctx, 1)
-		slog.Info("controller started, watching for changes")
-		<-ctx.Done()
+		if controller != nil {
+			if err := controller.Run(ctx, 1); err != nil {
+				slog.Error("controller error", "error", err)
+			}
+		}
 		slog.Info("stopping controller")
 	}()
 
@@ -159,6 +171,23 @@ func main() {
 	// Wait for all goroutines to finish
 	wg.Wait()
 	slog.Info("controller stopped gracefully")
+}
+
+// createController creates the appropriate controller for ConfigMap resources
+func createController(configMapInformer coreinformers.ConfigMapInformer, kubeClient kubernetes.Interface, namespace string, registry prometheus.Registerer, resourceName, resourceKey, pathToWrite string) (*sync_controller.Controller, error) {
+	opts := sync_controller.Options{
+		ConfigMapKey:  resourceKey,
+		ConfigMapName: resourceName,
+		FilePath:      pathToWrite,
+	}
+
+	return sync_controller.NewController(
+		configMapInformer,
+		kubeClient,
+		namespace,
+		registry,
+		opts,
+	)
 }
 
 // createInformerFactory creates and returns an appropriate informer factory based on resource type
