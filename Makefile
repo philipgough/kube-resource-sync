@@ -7,8 +7,13 @@ GOGET=$(GOCMD) get
 BINARY_NAME=kube-resource-sync
 MAIN_PACKAGE=./cmd/main.go
 
+# Docker parameters
+DOCKER_REGISTRY=quay.io/philipgough
+IMAGE_NAME=$(DOCKER_REGISTRY)/$(BINARY_NAME)
+IMAGE_TAG?=latest
+
 # Build targets
-.PHONY: build clean test lint help
+.PHONY: build clean test lint docker-build docker-push help
 build: ## Build the binary
 	$(GOBUILD) -o $(BINARY_NAME) -v $(MAIN_PACKAGE)
 
@@ -25,6 +30,12 @@ lint: ## Run linter (if available)
 	else \
 		echo "golangci-lint not found, skipping lint"; \
 	fi
+
+docker-build: ## Build Docker image
+	docker build -t $(IMAGE_NAME):$(IMAGE_TAG) .
+
+docker-push: docker-build ## Build and push Docker image to registry
+	docker push $(IMAGE_NAME):$(IMAGE_TAG)
 
 help: ## Show help
 	@echo 'Usage:'
