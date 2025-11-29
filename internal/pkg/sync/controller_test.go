@@ -14,8 +14,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	kubeinformers "k8s.io/client-go/informers"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/envtest"
 )
 
 const (
@@ -322,3 +327,153 @@ func TestController_MissingConfigMapKey(t *testing.T) {
 		t.Error("File should not be created when ConfigMap key is missing")
 	}
 }
+
+// Integration tests using envtest for real Kubernetes API interaction
+func TestCreateUpdateCycle_Integration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	const (
+		ns = "test-write-to-disk-ns"
+	)
+
+	tmpdir := t.TempDir()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	testEnv := &envtest.Environment{
+		CRDDirectoryPaths: []string{},
+	}
+
+	// start the test environment
+	cfg, err := testEnv.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := testEnv.Stop(); err != nil {
+			t.Logf("Failed to stop test environment: %v", err)
+		}
+	}()
+
+	k8sClient, err := client.New(cfg, client.Options{Scheme: scheme.Scheme})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a namespace
+	if err := k8sClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}); err != nil {
+		t.Fatal(err)
+	}
+
+	// run the controller in the background
+	file := filepath.Join(tmpdir, testConfigMapKey)
+	runControllerIntegration(t, ctx, cfg, ns, file)
+
+	// Create a ConfigMap
+	cm := buildConfigMap(t, ns, testConfigMapName, "hr", `["a", "b", "c"]`, `["t1", "t2"]`)
+	if err := k8sClient.Create(ctx, cm); err != nil {
+		t.Fatalf("failed to create ConfigMap: %v", err)
+	}
+
+	// verify the contents on disk
+	if err := pollUntilExpectConfigurationOrTimeout(t, ctx, file, cm.Data[testConfigMapKey]); err != nil {
+		t.Fatalf("failed to assert initial state: %v", err)
+	}
+
+	setTo := `[{"name":"a","tenants":["t1","t2"], "endpoints":["a"]},{"name":"b","tenants":["t3","t4"],"endpoints":["b"]}]`
+	cmCopy := cm.DeepCopy()
+	cmCopy.Data[testConfigMapKey] = setTo
+
+	if err := k8sClient.Update(ctx, cmCopy); err != nil {
+		t.Fatalf("failed to update ConfigMap: %v", err)
+	}
+
+	// verify the contents on disk
+	if err := pollUntilExpectConfigurationOrTimeout(t, ctx, file, setTo); err != nil {
+		t.Fatalf("failed to assert updated state: %v", err)
+	}
+}
+
+func runControllerIntegration(t *testing.T, ctx context.Context, cfg *rest.Config, namespace string, filePath string) {
+	t.Helper()
+	kubeClient, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		t.Fatal(err, "Error building kubernetes clientset")
+	}
+
+	configMapInformer := kubeinformers.NewSharedInformerFactoryWithOptions(
+		kubeClient,
+		time.Second*30,
+		kubeinformers.WithNamespace(namespace),
+		kubeinformers.WithTweakListOptions(func(options *metav1.ListOptions) {
+			options.FieldSelector = fmt.Sprintf("metadata.name=%s", testConfigMapName)
+		}),
+	)
+
+	controller, err := NewController(
+		configMapInformer.Core().V1().ConfigMaps(),
+		kubeClient,
+		namespace,
+		prometheus.NewRegistry(),
+		Options{
+			ConfigMapKey:  testConfigMapKey,
+			ConfigMapName: testConfigMapName,
+			FilePath:      filePath,
+		},
+	)
+	if err != nil {
+		t.Fatal(err, "Error creating controller")
+	}
+
+	configMapInformer.Start(ctx.Done())
+	go func() {
+		if err := controller.Run(ctx, 1); err != nil {
+			t.Logf("Controller error: %v", err)
+		}
+	}()
+}
+
+func buildConfigMap(t *testing.T, namespace, name, hashringName, endpoints, tenants string) *corev1.ConfigMap {
+	t.Helper()
+
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+		Data: map[string]string{
+			testConfigMapKey: fmt.Sprintf(`[{"name":"%s","endpoints":%s,"tenants":%s}]`, hashringName, endpoints, tenants),
+		},
+	}
+	return cm
+}
+
+func pollUntilExpectConfigurationOrTimeout(t *testing.T, ctx context.Context, file string, expect string) error {
+	t.Helper()
+	var pollError error
+
+	err := wait.PollUntilContextTimeout(ctx, 5*time.Second, 30*time.Second, false, func(ctx context.Context) (bool, error) {
+		b, err := os.ReadFile(file)
+		if err != nil {
+			pollError = fmt.Errorf("failed to read expect file: %s", err)
+			return false, nil
+		}
+
+		if string(b) != expect {
+			pollError = fmt.Errorf("expect file contents do not match expected: expect %s but got %s", expect, string(b))
+			return false, nil
+		}
+
+		return true, nil
+	})
+
+	if err != nil {
+		return fmt.Errorf("failed to assert contents of config file: %v: %v", err, pollError)
+	}
+
+	return nil
+}
+
