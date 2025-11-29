@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: file-watcher
+  namespace: default
+  labels:
+    app: file-watcher
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: file-watcher
+  template:
+    metadata:
+      labels:
+        app: file-watcher
+    spec:
+      containers:
+      - name: file-watcher
+        image: quay.io/philipgough/kube-resource-sync-demo-ui:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          name: web
+        env:
+        - name: WATCH_DIR
+          value: "/config"
+        - name: WATCH_FILE
+          value: "config.yaml"  # Specify which ConfigMap key to watch
+        volumeMounts:
+        - name: config-volume
+          mountPath: /config
+          readOnly: true
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      volumes:
+      - name: config-volume
+        configMap:
+          name: sample-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: file-watcher-service
+  namespace: default
+  labels:
+    app: file-watcher
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+    name: web
+  selector:
+    app: file-watcher

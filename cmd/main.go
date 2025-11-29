@@ -129,7 +129,7 @@ func main() {
 	slog.Info("starting kube-resource-sync controller", "namespace", namespace)
 
 	server := &http.Server{
-		Addr:    defaultListen,
+		Addr:    listen,
 		Handler: mux,
 	}
 
@@ -143,7 +143,7 @@ func main() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		slog.Info("starting HTTP server", "address", defaultListen)
+		slog.Info("starting HTTP server", "address", listen)
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("HTTP server error", "error", err)
 		}
