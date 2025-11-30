@@ -200,28 +200,19 @@ func createController(configMapInformer coreinformers.ConfigMapInformer, secretI
 
 // createInformerFactory creates and returns an appropriate informer factory based on resource type
 func createInformerFactory(kubeClient kubernetes.Interface, namespace string, resourceType ResourceType, resourceName string) (kubeinformers.SharedInformerFactory, error) {
-	switch resourceType {
-	case ResourceTypeConfigMap:
-		return kubeinformers.NewSharedInformerFactoryWithOptions(
-			kubeClient,
-			resyncPeriod,
-			kubeinformers.WithNamespace(namespace),
-			kubeinformers.WithTweakListOptions(func(options *metav1.ListOptions) {
-				options.FieldSelector = fmt.Sprintf("metadata.name=%s", resourceName)
-			}),
-		), nil
-	case ResourceTypeSecret:
-		return kubeinformers.NewSharedInformerFactoryWithOptions(
-			kubeClient,
-			resyncPeriod,
-			kubeinformers.WithNamespace(namespace),
-			kubeinformers.WithTweakListOptions(func(options *metav1.ListOptions) {
-				options.FieldSelector = fmt.Sprintf("metadata.name=%s", resourceName)
-			}),
-		), nil
-	default:
+	// Validate resource type
+	if resourceType != ResourceTypeConfigMap && resourceType != ResourceTypeSecret {
 		return nil, fmt.Errorf("unsupported resource type: %s", resourceType)
 	}
+	
+	return kubeinformers.NewSharedInformerFactoryWithOptions(
+		kubeClient,
+		resyncPeriod,
+		kubeinformers.WithNamespace(namespace),
+		kubeinformers.WithTweakListOptions(func(options *metav1.ListOptions) {
+			options.FieldSelector = fmt.Sprintf("metadata.name=%s", resourceName)
+		}),
+	), nil
 }
 
 // setupSignalHandler creates a context that is cancelled when SIGTERM or SIGINT is received
