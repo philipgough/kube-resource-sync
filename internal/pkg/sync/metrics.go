@@ -13,6 +13,10 @@ type metrics struct {
 	resourceDataHash *prometheus.GaugeVec
 	// lastWriteSuccessTime tracks when the file was last successfully written
 	lastWriteSuccessTime *prometheus.GaugeVec
+	// eventReceived tracks when events are received from Kubernetes API
+	eventReceived *prometheus.CounterVec
+	// eventProcessTime tracks timing of event processing
+	eventProcessTime *prometheus.HistogramVec
 }
 
 // newMetrics creates and returns new controller metrics
@@ -26,6 +30,14 @@ func newMetrics() *metrics {
 			Name: "kube_resource_sync_last_write_success_timestamp_seconds",
 			Help: "Timestamp of the last successful file write for a Kubernetes resource",
 		}, []string{"resource_type", "namespace", "resource_name", "key"}),
+		eventReceived: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "kube_resource_sync_events_received_total",
+			Help: "Total number of Kubernetes resource events received",
+		}, []string{"resource_type", "namespace", "resource_name", "event_type"}),
+		eventProcessTime: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name: "kube_resource_sync_event_process_duration_seconds",
+			Help: "Time taken to process a Kubernetes resource event from reception to file write",
+		}, []string{"resource_type", "namespace", "resource_name"}),
 	}
 }
 
@@ -34,6 +46,8 @@ func (m *metrics) register(registry prometheus.Registerer) {
 	registry.MustRegister(
 		m.resourceDataHash,
 		m.lastWriteSuccessTime,
+		m.eventReceived,
+		m.eventProcessTime,
 	)
 }
 
@@ -45,6 +59,16 @@ func (m *metrics) setResourceDataHash(resourceType, namespace, resourceName, key
 // setLastWriteSuccessTime sets the last write success time metric with labels
 func (m *metrics) setLastWriteSuccessTime(resourceType, namespace, resourceName, key string, timestamp float64) {
 	m.lastWriteSuccessTime.WithLabelValues(resourceType, namespace, resourceName, key).Set(timestamp)
+}
+
+// recordEventReceived increments the event received counter
+func (m *metrics) recordEventReceived(resourceType, namespace, resourceName, eventType string) {
+	m.eventReceived.WithLabelValues(resourceType, namespace, resourceName, eventType).Inc()
+}
+
+// startEventTimer starts timing an event processing duration
+func (m *metrics) startEventTimer(resourceType, namespace, resourceName string) *prometheus.Timer {
+	return prometheus.NewTimer(m.eventProcessTime.WithLabelValues(resourceType, namespace, resourceName))
 }
 
 // hashAsMetricValue converts a byte slice to a float64 hash value for metrics

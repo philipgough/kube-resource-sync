@@ -242,6 +242,9 @@ func (c *Controller) processNextWorkItem(ctx context.Context) bool {
 
 // syncHandler compares the actual state with the desired, and attempts to converge the two.
 func (c *Controller) syncHandler(_ context.Context, key string) error {
+	timer := c.metrics.startEventTimer(c.resourceType, c.namespace, c.resourceName)
+	defer timer.ObserveDuration()
+	
 	slog.Debug("syncHandler called", "resourceName", key, "resourceType", c.resourceType)
 	namespace, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {
@@ -306,19 +309,26 @@ func (c *Controller) syncHandler(_ context.Context, key string) error {
 }
 
 func (c *Controller) onConfigMapAdd(obj interface{}) {
+	slog.Info("ConfigMap add event received")
 	cm, ok := obj.(*corev1.ConfigMap)
 	if !ok {
 		slog.Error("unexpected object type", "type", fmt.Sprintf("%T", obj))
 		return
 	}
 
+	slog.Info("ConfigMap add event", "name", cm.Name, "namespace", cm.Namespace)
+	c.metrics.recordEventReceived(c.resourceType, cm.Namespace, cm.Name, "add")
+	
 	if !c.shouldEnqueueConfigMap(cm) {
+		slog.Info("ConfigMap filtered out", "name", cm.Name, "namespace", cm.Namespace, "expectedName", c.resourceName, "expectedNamespace", c.namespace)
 		return
 	}
+	slog.Info("Enqueueing ConfigMap", "name", cm.Name, "namespace", cm.Namespace)
 	c.enqueueResource(cm)
 }
 
 func (c *Controller) onConfigMapUpdate(oldObj, newObj interface{}) {
+	slog.Info("ConfigMap update event received")
 	newCM, ok := newObj.(*corev1.ConfigMap)
 	if !ok {
 		slog.Error("unexpected object type in update", "type", fmt.Sprintf("%T", newObj))
@@ -330,16 +340,22 @@ func (c *Controller) onConfigMapUpdate(oldObj, newObj interface{}) {
 		return
 	}
 
+	slog.Info("ConfigMap update event", "name", newCM.Name, "namespace", newCM.Namespace, "oldRV", oldCM.ResourceVersion, "newRV", newCM.ResourceVersion)
+	c.metrics.recordEventReceived(c.resourceType, newCM.Namespace, newCM.Name, "update")
+
 	if !c.shouldEnqueueConfigMap(newCM) {
+		slog.Info("ConfigMap update filtered out", "name", newCM.Name, "namespace", newCM.Namespace)
 		return
 	}
 
 	if newCM.ResourceVersion == oldCM.ResourceVersion {
+		slog.Info("ConfigMap update skipped - same resource version", "name", newCM.Name, "rv", newCM.ResourceVersion)
 		// Periodic resync will send update events for all known ConfigMap.
 		// Two different versions will always have different RVs.
 		return
 	}
 
+	slog.Info("Enqueueing ConfigMap update", "name", newCM.Name, "namespace", newCM.Namespace, "newRV", newCM.ResourceVersion)
 	c.enqueueResource(newCM)
 }
 
