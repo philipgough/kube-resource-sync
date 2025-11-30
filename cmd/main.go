@@ -50,7 +50,7 @@ var (
 	resourceType ResourceType
 	resourceName string
 	resourceKey  string
-	pathToWrite  string
+	writePath    string
 
 	listen string
 )
@@ -58,8 +58,8 @@ var (
 func main() {
 	flag.Parse()
 
-	if pathToWrite == "" {
-		slog.Error("path flag is required")
+	if writePath == "" {
+		slog.Error("-write-path flag is required")
 		os.Exit(1)
 	}
 
@@ -109,13 +109,14 @@ func main() {
 
 	// Create controller based on resource type
 	var controller *synccontroller.Controller
+
 	switch resourceType {
 	case ResourceTypeConfigMap:
 		configMapInformer := informerFactory.Core().V1().ConfigMaps()
-		controller, err = createController(configMapInformer, nil, kubeClient, namespace, r, string(resourceType), resourceName, resourceKey, pathToWrite)
+		controller, err = createController(configMapInformer, nil, kubeClient, namespace, r, string(resourceType), resourceName, resourceKey, writePath)
 	case ResourceTypeSecret:
 		secretInformer := informerFactory.Core().V1().Secrets()
-		controller, err = createController(nil, secretInformer, kubeClient, namespace, r, string(resourceType), resourceName, resourceKey, pathToWrite)
+		controller, err = createController(nil, secretInformer, kubeClient, namespace, r, string(resourceType), resourceName, resourceKey, writePath)
 	default:
 		slog.Error("unsupported resource type", "type", resourceType)
 		os.Exit(1)
@@ -179,12 +180,12 @@ func main() {
 }
 
 // createController creates the appropriate controller for resources
-func createController(configMapInformer coreinformers.ConfigMapInformer, secretInformer coreinformers.SecretInformer, kubeClient kubernetes.Interface, namespace string, registry prometheus.Registerer, resourceType, resourceName, resourceKey, pathToWrite string) (*synccontroller.Controller, error) {
+func createController(configMapInformer coreinformers.ConfigMapInformer, secretInformer coreinformers.SecretInformer, kubeClient kubernetes.Interface, namespace string, registry prometheus.Registerer, resourceType, resourceName, resourceKey, writePath string) (*synccontroller.Controller, error) {
 	opts := synccontroller.Options{
 		ResourceType: resourceType,
 		ResourceKey:  resourceKey,
 		ResourceName: resourceName,
-		FilePath:     pathToWrite,
+		FilePath:     writePath,
 	}
 
 	return synccontroller.NewController(
@@ -250,6 +251,6 @@ func init() {
 	})
 	flag.StringVar(&resourceName, "resource-name", "", "Name of the Kubernetes resource to watch and sync")
 	flag.StringVar(&resourceKey, "resource-key", "", "Specific key within the resource to sync. If empty, syncs all keys")
-	flag.StringVar(&pathToWrite, "path", "", "Local filesystem path where synced resource data will be written")
+	flag.StringVar(&writePath, "write-path", "", "Filesystem path where synced resource data will be written (can be mounted ConfigMap/Secret volume)")
 
 }
