@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  file-watcher:
+    build: .
+    ports:
+      - "7070:7070"
+    volumes:
+      - ./watched:/watched:ro  # Mount local watched directory as read-only
+    environment:
+      - WATCH_DIR=/watched
+    restart: unless-stopped

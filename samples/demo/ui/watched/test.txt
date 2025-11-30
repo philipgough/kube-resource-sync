@@ -1,0 +1,4 @@
+Hello, this is a test file!
+This content will update in real-time when changed.
+Current time: file updated via edit!
+This change should appear in the browser automatically.
