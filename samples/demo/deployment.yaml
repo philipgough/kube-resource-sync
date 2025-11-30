@@ -20,7 +20,7 @@ spec:
         image: quay.io/philipgough/kube-resource-sync-demo-ui:latest
         imagePullPolicy: Always
         ports:
-        - containerPort: 8080
+        - containerPort: 7070
           name: web
         env:
         - name: WATCH_DIR
@@ -41,13 +41,13 @@ spec:
         livenessProbe:
           httpGet:
             path: /
-            port: 8080
+            port: 7070
           initialDelaySeconds: 10
           periodSeconds: 30
         readinessProbe:
           httpGet:
             path: /
-            port: 8080
+            port: 7070
           initialDelaySeconds: 5
           periodSeconds: 10
       volumes:
@@ -65,8 +65,8 @@ metadata:
 spec:
   type: ClusterIP
   ports:
-  - port: 8080
-    targetPort: 8080
+  - port: 7070
+    targetPort: 7070
     protocol: TCP
     name: web
   selector:

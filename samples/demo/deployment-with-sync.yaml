@@ -1,0 +1,144 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: file-watcher-with-sync
+  namespace: default
+  labels:
+    app: file-watcher-with-sync
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: file-watcher-with-sync
+  template:
+    metadata:
+      labels:
+        app: file-watcher-with-sync
+    spec:
+      serviceAccountName: kube-resource-sync
+      containers:
+      # Main application container (same as before)
+      - name: file-watcher
+        image: quay.io/philipgough/kube-resource-sync-demo-ui:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 7070
+          name: web
+        env:
+        - name: WATCH_DIR
+          value: "/config"
+        - name: WATCH_FILE
+          value: "config.yaml"
+        volumeMounts:
+        - name: shared-volume
+          mountPath: /config
+          readOnly: true
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 7070
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 7070
+          initialDelaySeconds: 5
+          periodSeconds: 10
+
+      # kube-resource-sync sidecar container
+      - name: kube-resource-sync
+        image: quay.io/philipgough/kube-resource-sync:latest
+        imagePullPolicy: Always
+        args:
+        - "-resource-type=configmap"
+        - "-resource-name=sample-config"
+        - "-resource-key=config.yaml"
+        - "-write-path=/config/config.yaml"
+        - "-namespace=default" 
+        - "-listen=:8081"
+        ports:
+        - containerPort: 8081
+          name: metrics
+        volumeMounts:
+        - name: shared-volume
+          mountPath: /config
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "25m"
+          limits:
+            memory: "64Mi"
+            cpu: "50m"
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 2
+          periodSeconds: 5
+
+      volumes:
+      - name: shared-volume
+        emptyDir:
+          sizeLimit: 10Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: file-watcher-with-sync-service
+  namespace: default
+  labels:
+    app: file-watcher-with-sync
+spec:
+  type: ClusterIP
+  ports:
+  - port: 7070
+    targetPort: 7070
+    protocol: TCP
+    name: web
+  - port: 8081
+    targetPort: 8081
+    name: metrics
+  selector:
+    app: file-watcher-with-sync
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kube-resource-sync
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kube-resource-sync
+rules:
+- apiGroups: [""]
+  resources: ["configmaps", "secrets"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kube-resource-sync
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kube-resource-sync
+subjects:
+- kind: ServiceAccount
+  name: kube-resource-sync
+  namespace: default
