@@ -204,7 +204,7 @@ func createInformerFactory(kubeClient kubernetes.Interface, namespace string, re
 	if resourceType != ResourceTypeConfigMap && resourceType != ResourceTypeSecret {
 		return nil, fmt.Errorf("unsupported resource type: %s", resourceType)
 	}
-	
+
 	return kubeinformers.NewSharedInformerFactoryWithOptions(
 		kubeClient,
 		resyncPeriod,
