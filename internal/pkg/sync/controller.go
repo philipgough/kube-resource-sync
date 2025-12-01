@@ -244,7 +244,7 @@ func (c *Controller) processNextWorkItem(ctx context.Context) bool {
 func (c *Controller) syncHandler(_ context.Context, key string) error {
 	timer := c.metrics.startEventTimer(c.resourceType, c.namespace, c.resourceName)
 	defer timer.ObserveDuration()
-	
+
 	slog.Debug("syncHandler called", "resourceName", key, "resourceType", c.resourceType)
 	namespace, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {
@@ -318,7 +318,7 @@ func (c *Controller) onConfigMapAdd(obj interface{}) {
 
 	slog.Info("ConfigMap add event", "name", cm.Name, "namespace", cm.Namespace)
 	c.metrics.recordEventReceived(c.resourceType, cm.Namespace, cm.Name, "add")
-	
+
 	if !c.shouldEnqueueConfigMap(cm) {
 		slog.Info("ConfigMap filtered out", "name", cm.Name, "namespace", cm.Namespace, "expectedName", c.resourceName, "expectedNamespace", c.namespace)
 		return
