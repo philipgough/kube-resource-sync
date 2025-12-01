@@ -15,9 +15,9 @@ RUN go mod download
 COPY cmd/ cmd/
 COPY internal/ internal/
 
-# Build the binary
+# Build the binary with size optimizations
 RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} \
-    go build -a -installsuffix cgo -o kube-resource-sync ./cmd/main.go
+    go build -a -installsuffix cgo -ldflags="-w -s" -o kube-resource-sync ./cmd/main.go
 
 # Runtime stage
 FROM gcr.io/distroless/static:nonroot
