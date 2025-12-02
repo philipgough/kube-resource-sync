@@ -23,3 +23,10 @@ Kube Resource Sync solves this by:
 - Minimal resource footprint suitable for sidecar deployment
 - Support for multiple file formats and directory structures
 - Health checks and monitoring endpoints
+
+## Demo
+
+See the [demo example](./samples/demo/) for a complete working example that shows the difference
+between standard Kubernetes ConfigMap mounting (periodic kubelet sync) versus instant sidecar sync.
+
+https://github.com/philipgough/kube-resource-sync/raw/main/samples/demo/demo.mov
