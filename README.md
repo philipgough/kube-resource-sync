@@ -29,4 +29,4 @@ Kube Resource Sync solves this by:
 See the [demo example](./samples/demo/) for a complete working example that shows the difference
 between standard Kubernetes ConfigMap mounting (periodic kubelet sync) versus instant sidecar sync.
 
-https://github.com/philipgough/kube-resource-sync/raw/main/samples/demo/demo.mov
+![Demo](./samples/demo/demo.gif)
