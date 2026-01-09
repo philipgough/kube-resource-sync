@@ -40,7 +40,7 @@ const (
 	defaultListen = ":8080"
 
 	resyncPeriod = time.Minute
-	
+
 	// initModeTimeout is the maximum time to wait for the resource to be available
 	initModeTimeout = 5 * time.Minute
 	// initModeRetryDelay is the delay between retries when checking for the resource
@@ -66,10 +66,10 @@ func performInitialSync(ctx context.Context, kubeClient kubernetes.Interface, na
 	timeoutCtx, cancel := context.WithTimeout(ctx, initModeTimeout)
 	defer cancel()
 
-	slog.Info("waiting for resource to be available", 
-		"namespace", namespace, 
-		"resourceType", resourceType, 
-		"resourceName", resourceName, 
+	slog.Info("waiting for resource to be available",
+		"namespace", namespace,
+		"resourceType", resourceType,
+		"resourceName", resourceName,
 		"resourceKey", resourceKey,
 		"timeout", initModeTimeout)
 
