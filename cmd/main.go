@@ -40,6 +40,11 @@ const (
 	defaultListen = ":8080"
 
 	resyncPeriod = time.Minute
+
+	// initModeTimeout is the maximum time to wait for the resource to be available
+	initModeTimeout = 5 * time.Minute
+	// initModeRetryDelay is the delay between retries when checking for the resource
+	initModeRetryDelay = 5 * time.Second
 )
 
 var (
@@ -52,8 +57,83 @@ var (
 	resourceKey  string
 	writePath    string
 
-	listen string
+	listen   string
+	initMode bool
 )
+
+// performInitialSync waits for the specified resource to exist and writes it to the target path
+func performInitialSync(ctx context.Context, kubeClient kubernetes.Interface, namespace, resourceType, resourceName, resourceKey, writePath string) error {
+	timeoutCtx, cancel := context.WithTimeout(ctx, initModeTimeout)
+	defer cancel()
+
+	slog.Info("waiting for resource to be available",
+		"namespace", namespace,
+		"resourceType", resourceType,
+		"resourceName", resourceName,
+		"resourceKey", resourceKey,
+		"timeout", initModeTimeout)
+
+	ticker := time.NewTicker(initModeRetryDelay)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-timeoutCtx.Done():
+			return fmt.Errorf("timeout waiting for resource %s/%s in namespace %s", resourceType, resourceName, namespace)
+		case <-ticker.C:
+			data, err := fetchResourceData(kubeClient, namespace, resourceType, resourceName, resourceKey)
+			if err != nil {
+				slog.Debug("resource not yet available, retrying", "error", err)
+				continue
+			}
+
+			if len(data) == 0 {
+				slog.Debug("resource exists but key not found, retrying", "resourceKey", resourceKey)
+				continue
+			}
+
+			slog.Info("resource found, writing to file", "writePath", writePath, "dataSize", len(data))
+			if err := os.WriteFile(writePath, data, 0644); err != nil {
+				return fmt.Errorf("failed to write file: %w", err)
+			}
+
+			slog.Info("successfully wrote resource data to file", "writePath", writePath)
+			return nil
+		}
+	}
+}
+
+// fetchResourceData retrieves the specified data from a ConfigMap or Secret
+func fetchResourceData(kubeClient kubernetes.Interface, namespace, resourceType, resourceName, resourceKey string) ([]byte, error) {
+	switch resourceType {
+	case string(ResourceTypeConfigMap):
+		cm, err := kubeClient.CoreV1().ConfigMaps(namespace).Get(context.Background(), resourceName, metav1.GetOptions{})
+		if err != nil {
+			return nil, err
+		}
+
+		data, exists := cm.Data[resourceKey]
+		if !exists {
+			return nil, fmt.Errorf("key %s not found in ConfigMap", resourceKey)
+		}
+		return []byte(data), nil
+
+	case string(ResourceTypeSecret):
+		secret, err := kubeClient.CoreV1().Secrets(namespace).Get(context.Background(), resourceName, metav1.GetOptions{})
+		if err != nil {
+			return nil, err
+		}
+
+		data, exists := secret.Data[resourceKey]
+		if !exists {
+			return nil, fmt.Errorf("key %s not found in Secret", resourceKey)
+		}
+		return data, nil
+
+	default:
+		return nil, fmt.Errorf("unsupported resource type: %s", resourceType)
+	}
+}
 
 func main() {
 	flag.Parse()
@@ -90,6 +170,17 @@ func main() {
 	if err != nil {
 		slog.Error("error building kubernetes clientset", "error", err)
 		os.Exit(1)
+	}
+
+	// Handle init mode - perform initial sync and exit
+	if initMode {
+		slog.Info("running in init mode - performing initial sync and exiting")
+		if err := performInitialSync(ctx, kubeClient, namespace, string(resourceType), resourceName, resourceKey, writePath); err != nil {
+			slog.Error("init mode failed", "error", err)
+			os.Exit(1)
+		}
+		slog.Info("init mode completed successfully")
+		os.Exit(0)
 	}
 
 	r := prometheus.NewRegistry()
@@ -243,5 +334,6 @@ func init() {
 	flag.StringVar(&resourceName, "resource-name", "", "Name of the Kubernetes resource to watch and sync")
 	flag.StringVar(&resourceKey, "resource-key", "", "Specific key within the resource to sync. If empty, syncs all keys")
 	flag.StringVar(&writePath, "write-path", "", "Filesystem path where synced resource data will be written (can be mounted ConfigMap/Secret volume)")
+	flag.BoolVar(&initMode, "init-mode", false, "Run as init container: perform initial sync and exit. Does not start HTTP server or continuous watching.")
 
 }
