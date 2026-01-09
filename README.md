@@ -23,6 +23,7 @@ Kube Resource Sync solves this by:
 - Minimal resource footprint suitable for sidecar deployment
 - Support for multiple file formats and directory structures
 - Health checks and monitoring endpoints
+- Init container mode for one-time synchronization
 
 ## Demo
 
@@ -30,3 +31,34 @@ See the [demo example](./samples/demo/) for a complete working example that show
 between standard Kubernetes ConfigMap mounting (periodic kubelet sync) versus instant sidecar sync.
 
 ![Demo](./samples/demo/demo.gif)
+
+## Init Container Mode
+
+Kube Resource Sync can also be used as an init container to perform a one-time synchronization before your main application starts. In this mode, the application will:
+
+1. Wait for the specified ConfigMap or Secret to be available
+2. Write the resource data to the specified file path
+3. Exit successfully once the sync is complete
+
+This is useful when you need to ensure that configuration files are available before your main application starts.
+
+### Usage
+
+To run in init container mode, add the `--init-mode` flag:
+
+```bash
+./kube-resource-sync \
+  --init-mode \
+  --namespace=default \
+  --resource-type=configmap \
+  --resource-name=my-config \
+  --resource-key=config.yaml \
+  --write-path=/etc/config/config.yaml
+```
+
+### Configuration
+
+The init mode supports the same configuration flags as the normal mode, with these differences:
+
+- `--init-mode`: Enable init container mode
+- `--listen`: Ignored in init mode (no HTTP server is started)
