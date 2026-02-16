@@ -5,7 +5,7 @@ go 1.25.4
 require (
 	github.com/prometheus/client_golang v1.23.2
 	k8s.io/api v0.35.0
-	k8s.io/apimachinery v0.35.0
+	k8s.io/apimachinery v0.35.1
 	k8s.io/client-go v0.35.0
 	sigs.k8s.io/controller-runtime v0.22.4
 )
